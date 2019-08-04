@@ -110,6 +110,8 @@ class ControllerApp(QWidget):
         self.infer_performances = []
         self.fps_performances = []
 
+        self.should_running = True
+
         self.targetYoloObject = target_object
         self.init_UI()
 
@@ -137,13 +139,16 @@ class ControllerApp(QWidget):
         layout_target_resolution_scale.addWidget(target_resolution_scale_pushButton)
         layout_target_fps.addSpacing(10)
 
-        target_fps_pushButton = QPushButton("Refresh performance data")
-        target_fps_pushButton.clicked.connect(lambda: self.set_target_fps())
+        refresh_pushButton = QPushButton("Refresh performance data")
+        refresh_pushButton.clicked.connect(lambda: self.refresh_data())
+
+        self.startstop_pushButton = QPushButton("Stop")
+        self.startstop_pushButton.clicked.connect(lambda: self.set_start_stop())
 
         self.image_viewer = ImageViewer()
 
-        self.label_current_fps = QLabel('Currnet fps(estimated) : ??', self)
-        self.label_current_fps.setText('Currnet fps(estimated) : ??')
+        self.label_current_fps = QLabel('Currnet fps(estimated) : 0', self)
+        self.label_current_fps.setText('Currnet fps(estimated) : 0')
         self.label_current_fps.setAlignment(Qt.AlignRight)
 
         layout_right = QVBoxLayout()
@@ -152,7 +157,11 @@ class ControllerApp(QWidget):
         layout_right.addStretch(1)
         layout_right.addLayout(layout_target_fps)
         layout_right.addLayout(layout_target_resolution_scale)
-        layout_right.addStretch(10)
+        layout_right.addStretch(1)
+        layout_right.addWidget(refresh_pushButton)
+        layout_right.addStretch(3)
+        layout_right.addWidget(self.startstop_pushButton)
+        layout_right.addStretch(4)
 
         # Left Layout
         self.fig = plt.Figure()
@@ -174,9 +183,9 @@ class ControllerApp(QWidget):
         self.ax_infer = self.fig.add_subplot(312)
         self.ax_fps = self.fig.add_subplot(313)
 
-        self.ax_req.axis(ymin=0, ymax=1.0)
-        self.ax_infer.axis(ymin=0, ymax=1.0)
-        self.ax_fps.axis(ymin=0, ymax=18)
+        self.ax_req.axis(ymin=0, ymax=0.6)
+        self.ax_infer.axis(ymin=0, ymax=0.6)
+        self.ax_fps.axis(ymin=0, ymax=12)
 
         self.req_line, = self.ax_req.plot([], [], label='req')
         self.infer_line, = self.ax_infer.plot([], [], label='infer')
@@ -194,15 +203,25 @@ class ControllerApp(QWidget):
 
         self.setLayout(layout)
 
+    def set_start_stop(self):
+        if self.should_running:
+            self.targetYoloObject.set_should_running(False)
+            self.should_running = False
+            self.startstop_pushButton.setText("Start")
+        else:
+            self.targetYoloObject.set_should_running(True)
+            self.should_running = True
+            self.startstop_pushButton.setText("Stop")
+
     def refresh_data(self):
         self.index_performances = 0
         self.req_performances = []
         self.infer_performances = []
         self.fps_performances = []
 
-        self.ax_req.axis(ymin=0, ymax=1.0)
-        self.ax_infer.axis(ymin=0, ymax=1.0)
-        self.ax_fps.axis(ymin=0, ymax=18)
+        self.ax_req.axis(ymin=0, ymax=0.6)
+        self.ax_infer.axis(ymin=0, ymax=0.6)
+        self.ax_fps.axis(ymin=0, ymax=12)
 
         self.canvas.draw()
 
@@ -225,6 +244,8 @@ class ControllerApp(QWidget):
         self.req_performances.append(performance_list[0])
         self.infer_performances.append(performance_list[1])
         self.fps_performances.append(performance_list[2])
+
+        self.set_current_fps(performance_list[2])
 
         index_range = range(0, self.index_performances)
 
@@ -358,22 +379,28 @@ class Yolov3WithCam(QObject):
                 print("Error while inference")
                 print(e)
 
-            infer_end = time.time()
-            infer_time = infer_end - infer_start
+            if self.should_running:
+                infer_end = time.time()
+                infer_time = infer_end - infer_start
 
-            target_delay = (1.0 / self.target_fps) - infer_time - req_time
-            if target_delay < 0:
-                target_delay = 0
+                target_delay = (1.0 / self.target_fps) - infer_time - req_time
+                if target_delay < 0:
+                    target_delay = 0
 
-            time.sleep(target_delay)
+                time.sleep(target_delay)
 
-            job_end = time.time()
-            job_time = job_end - req_start
+                job_end = time.time()
+                job_time = job_end - req_start
 
-            fps = round(1 / job_time)
-            # print(job_time)
-            self.fps_signal.emit(fps)
-            self.performance_signal.emit([req_time, infer_time, fps])
+                fps = round(1 / job_time)
+                # print(job_time)
+                # self.fps_signal.emit(fps)
+                self.performance_signal.emit([req_time, infer_time, fps])
+            else:
+                pass
+
+    def set_should_running(self, should_running):
+        self.should_running = should_running
 
     def set_target_fps(self, target_fps):
         if target_fps is 0:
@@ -401,7 +428,7 @@ if __name__ == '__main__':
     thread.start()
 
     yolo_object.video_signal.connect(window.image_viewer.setImage)
-    yolo_object.fps_signal.connect(window.set_current_fps)
+    # yolo_object.fps_signal.connect(window.set_current_fps)
     yolo_object.performance_signal.connect(window.add_performances)
 
     app.exec_()
